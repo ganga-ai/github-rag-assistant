@@ -1,0 +1,43 @@
+# Python-generated files
+
+
+wheels/
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+
+# uv
+.uv/
+
+# Environment
+.env
+
+# Data and databases
+data/
+*.db
+.chroma/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+*.egg-info/
+
+.streamlit/secrets.toml
+.env
+data/

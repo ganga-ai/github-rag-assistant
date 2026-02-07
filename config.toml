@@ -1,0 +1,25 @@
+[models]
+embedding_model = "text-embedding-3-small"
+llm_model = "gpt-4o-mini"
+
+[chunking]
+chunk_size = 1000
+chunk_overlap = 200
+
+[filtering]
+include_extensions = [".py", ".md", ".txt", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs"]
+include_exact_names = ["README", "LICENSE", "Makefile", "Dockerfile", "requirements.txt"]
+exclude_patterns = ["node_modules", "__pycache__", ".git", "venv", ".venv", "build", "dist"]
+max_file_size_mb = 1
+
+[vector_store]
+type = "pinecone"   # or  "chromadb"  
+collection_name = "github_repo_chunks"
+persist_directory = "data/chroma_db"
+
+# Pinecone settings
+pinecone_index_name = "github-rag-assistant"
+pinecone_host = "github-rag-assistant-pf7o3bq.svc.aped-4627-b74a.pinecone.io"  # e.g., "us-east-1-aws"
+
+[ingestion]
+batch_size = 100
