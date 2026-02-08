@@ -311,10 +311,10 @@ if "ingestion_complete" in st.session_state and st.session_state.ingestion_compl
                             f"Relevance: {source['relevance_score']:.2%}"
                         ):
                             # Find the actual chunk content to display
-                           # chunks = st.session_state.chunks
                             if 'chunks' not in st.session_state:
                                 st.warning("⚠️ Full source preview unavailable (data from previous session)")
                             else:
+                                chunks = st.session_state.chunks
                                 matching_chunk = None
                                 for chunk in chunks:
                                     if (chunk['metadata']['file_path'] == source['file_path'] and
