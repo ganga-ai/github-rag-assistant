@@ -3,6 +3,7 @@ from typing import List
 from openai import OpenAI
 from dotenv import load_dotenv
 from github_rag.utils.config import get_model_config
+from github_rag.utils.usage_tracker import UsageTracker
 
 # Load environment variables
 load_dotenv()
@@ -22,7 +23,8 @@ class EmbeddingGenerator:
         # Get embedding model from config
         model_config = get_model_config()
         self.embedding_model = model_config.get("embedding_model", "text-embedding-3-small")
-    
+        self.tracker = UsageTracker()
+
     def generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding for a single text.
@@ -53,6 +55,10 @@ class EmbeddingGenerator:
             model=self.embedding_model,
             input=texts
         )
+
+        #Track usage
+        total_tokens = response.usage.total_tokens
+        self.tracker.log_embedding(total_tokens)
         
         # Sort by index to maintain order
         embeddings = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]

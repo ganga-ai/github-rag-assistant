@@ -15,6 +15,26 @@ if st.button("🐛 Debug: Skip to Q&A (if data exists in Pinecone)"):
     st.session_state.ingestion_complete = True
     st.rerun()
 
+# Sidebar with usage stats
+with st.sidebar:
+    st.header("📊 Usage Stats")
+    
+    try:
+        from github_rag.utils.usage_tracker import UsageTracker
+        tracker = UsageTracker()
+        stats = tracker.get_session_stats()
+        total_cost = tracker.get_total_cost()
+        
+        st.metric("Today's Tokens", f"{stats['total_tokens']:,}")
+        st.metric("Today's Cost", f"${stats['total_cost']:.4f}")
+        st.metric("Total Cost (All Time)", f"${total_cost:.4f}")
+        
+        with st.expander("Details"):
+            st.write(f"Embedding calls: {stats['embedding_calls']}")
+            st.write(f"LLM calls: {stats['llm_calls']}")
+    except Exception as e:
+        st.caption("Usage tracking unavailable")
+
 st.markdown("---")
 
 # Initialize components

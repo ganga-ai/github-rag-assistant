@@ -3,6 +3,7 @@ from typing import Dict, List
 from openai import OpenAI
 from dotenv import load_dotenv
 from github_rag.utils.config import get_model_config
+from github_rag.utils.usage_tracker import UsageTracker
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +23,7 @@ class AnswerGenerator:
         # Get LLM model from config
         model_config = get_model_config()
         self.llm_model = model_config.get("llm_model", "gpt-4o-mini")
+        self.tracker = UsageTracker()
     
     def generate_answer(self, query: str, context: str, retrieved_chunks: List[Dict]) -> Dict:
         """
@@ -68,6 +70,11 @@ Please provide a clear, accurate answer based on the context above."""
             temperature=0.3,  # Lower temperature for more focused answers
             max_tokens=1000
         )
+
+        #Track usage
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
+        self.tracker.log_usage(input_tokens,output_tokens)
         
         answer_text = response.choices[0].message.content
         
