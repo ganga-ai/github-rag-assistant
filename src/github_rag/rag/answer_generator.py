@@ -4,6 +4,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from github_rag.utils.config import get_model_config
 from github_rag.utils.usage_tracker import UsageTracker
+from github_rag.utils.prompt_templates import get_prompt_template
+from github_rag.utils.token_utils import TokenCounter
 
 # Load environment variables
 load_dotenv()
@@ -24,41 +26,42 @@ class AnswerGenerator:
         model_config = get_model_config()
         self.llm_model = model_config.get("llm_model", "gpt-4o-mini")
         self.tracker = UsageTracker()
+        self.token_counter = TokenCounter(model=self.llm_model, max_tokens=1500)
     
     def generate_answer(self, query: str, context: str, retrieved_chunks: List[Dict]) -> Dict:
-        """
-        Generate answer using LLM based on query and retrieved context.
+        """Generate answer using LLM with file-type-specific prompts."""
         
-        Args:
-            query: User's question
-            context: Formatted context from retrieved chunks
-            retrieved_chunks: List of retrieved chunk dictionaries
+        # Determine predominant file type from chunks
+        file_extensions = [chunk['metadata'].get('file_extension', '') for chunk in retrieved_chunks]
+        most_common_ext = max(set(file_extensions), key=file_extensions.count) if file_extensions else ''
+        ext = f".{most_common_ext}" if most_common_ext and most_common_ext != 'none' else 'default'
         
-        Returns:
-            Dictionary with answer and sources
-        """
-        # Create system prompt
-        system_prompt = """You are a helpful assistant that answers questions about GitHub repositories based on the provided code and documentation.
+        # Get appropriate template
+        template = get_prompt_template(ext)
+        system_prompt = template['system']
+        user_prompt_template = template['user']
 
-Your task:
-1. Carefully read the provided context from the repository
-2. Answer the user's question based ONLY on the information in the context
-3. If the context doesn't contain enough information to answer, say so clearly
-4. Be specific and cite which files or sections you're referring to
-5. Use markdown formatting for code snippets when appropriate
+        # Truncate chunks to fit token budget
+        truncated_chunks = self.token_counter.truncate_chunks(
+            retrieved_chunks, 
+            system_prompt, 
+            query
+        )
 
-Important: Do not make assumptions or add information that isn't in the provided context."""
+        if not truncated_chunks:
+            return {
+                'answer': "❌ Question too long - no tokens left for context. Try shorter question.",
+                'sources': [],
+                'model_used': self.llm_model
+            }
 
-        # Create user prompt with context
-        user_prompt = f"""Based on the following code and documentation from the repository:
+        # Format context from truncated chunks
+        from github_rag.rag.query_processor import QueryProcessor
+        temp_processor = QueryProcessor(None, None)
+        context = temp_processor.format_context_for_llm(truncated_chunks)
 
-{context}
-
----
-
-Question: {query}
-
-Please provide a clear, accurate answer based on the context above."""
+        # Format user prompt
+        user_prompt = user_prompt_template.format(context=context, query=query)
 
         # Call OpenAI API
         response = self.client.chat.completions.create(
@@ -67,14 +70,14 @@ Please provide a clear, accurate answer based on the context above."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.3,  # Lower temperature for more focused answers
+            temperature=0.3,
             max_tokens=1000
         )
-
-        #Track usage
+        
+        # Track usage
         input_tokens = response.usage.prompt_tokens
         output_tokens = response.usage.completion_tokens
-        self.tracker.log_usage(input_tokens,output_tokens)
+        self.tracker.log_llm_call(input_tokens, output_tokens)
         
         answer_text = response.choices[0].message.content
         
@@ -92,5 +95,6 @@ Please provide a clear, accurate answer based on the context above."""
         return {
             'answer': answer_text,
             'sources': sources,
-            'model_used': self.llm_model
+            'model_used': self.llm_model,
+            'prompt_type': ext  # Track which prompt was used
         }

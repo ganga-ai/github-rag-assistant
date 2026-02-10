@@ -1,6 +1,7 @@
 from typing import Optional, Dict
 from github import ContentFile
 from github_rag.ingestion.github_client import GitHubClient
+from github_rag.ingestion.notebook_parser import parse_notebook_cells
 
 
 class ContentNormalizer:
@@ -102,10 +103,17 @@ class ContentNormalizer:
         if content is None:
             return None
         
-        # Normalize content
-        normalized_content = self.normalize_content(content, content_file.path)
-        if not normalized_content:
-            return None
+        #Special handling for notebooks
+        if content_file.name.endswith('.ipynb'):
+            parsed_content = parse_notebook_cells(content, max_cells=5)
+            if parsed_content:
+                normalized_content = parsed_content
+            else:
+                # Fallback to regular normalization if parsing fails
+                normalized_content = self.normalize_content(content, content_file.path)
+        else:
+            # Regular normalization for non-notebook files
+            normalized_content = self.normalize_content(content, content_file.path)
         
         # Create metadata
         metadata = self.create_file_metadata(content_file)

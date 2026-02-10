@@ -4,6 +4,7 @@ from github_rag.ingestion.file_filter import FileFilter
 from github_rag.ingestion.content_normalizer import ContentNormalizer
 from github_rag.ingestion.chunker import Chunker
 from github_rag.rag.embeddings import EmbeddingGenerator
+from github_rag.utils.chunk_validator import ChunkValidator
 
 st.set_page_config(page_title="GitHub RAG Assistant", page_icon="🤖")
 
@@ -109,21 +110,109 @@ if st.button("🔍 Validate Repository", type="primary"):
 
 st.markdown("---")
 
-# File scanning section
+# File scanning section    
+   # File scanning section - Step 2a: Scan Folders
 if "repo" in st.session_state:
-    st.subheader("📁 Step 2: Scan Repository Files")
+    st.subheader("📁 Step 2a: Scan Folder Structure")
     
-    if st.button("🔎 Scan Files", type="primary"):
-        with st.spinner("Scanning repository..."):
+    if st.button("🔎 Scan Folders", type="primary"):
+        with st.spinner("Scanning folder structure..."):
             try:
+                from github_rag.utils.folder_utils import scan_folder_structure
+                
                 repo = st.session_state.repo
-                all_files = client.get_all_files(repo)
-                filtered_files = [f for f in all_files if file_filter.should_include(f)]
-                excluded_files = [f for f in all_files if not file_filter.should_include(f)]
+                folder_structure = scan_folder_structure(repo)
+                
+                st.session_state.folder_structure = folder_structure
+                
+                st.success(f"✅ Found {len(folder_structure)} folders")
+                
+                # Display folders
+                st.subheader("📂 Available Folders")
+                folder_data = []
+                for folder, info in folder_structure.items():
+                    folder_data.append({
+                        "Folder": folder,
+                        "Files": info['count'],
+                        "Extensions": ", ".join(info['extensions'][:5])  # Show first 5
+                    })
+                
+                st.dataframe(folder_data, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+    
+    st.markdown("---")
+
+# Step 2b: Select Folders and Fetch Files
+if "folder_structure" in st.session_state:
+    st.subheader("📁 Step 2b: Select Folders to Process")
+    
+    folder_structure = st.session_state.folder_structure
+    
+    st.info(f"💡 Select specific folders to reduce costs. Unselected folders will be skipped.")
+    
+    # NEW: Extension filter
+    st.subheader("🔧 Filter by File Extensions")
+    
+    # Collect all unique extensions
+    all_extensions = set()
+    for folder, info in folder_structure.items():
+        all_extensions.update(info['extensions'])
+    all_extensions = sorted(all_extensions)
+    
+    selected_extensions = st.multiselect(
+        "Select file extensions to include (leave empty for all):",
+        options=all_extensions,
+        default=all_extensions,  # All selected by default
+        help="Only files with these extensions will be processed"
+    )
+    
+    st.session_state.selected_extensions = selected_extensions if selected_extensions else all_extensions
+    
+    st.markdown("---")
+    st.subheader("📂 Select Folders")
+    
+    # Display folders with checkboxes
+    selected_folders = []
+    
+    col1, col2 = st.columns(2)
+    folder_items = list(folder_structure.items())
+    mid = len(folder_items) // 2
+    
+    with col1:
+        for folder, info in folder_items[:mid]:
+            label = f"{folder} ({info['count']} files, {', '.join(info['extensions'][:3])})"
+            if st.checkbox(label, key=f"folder_{folder}"):
+                selected_folders.append(folder)
+    
+    with col2:
+        for folder, info in folder_items[mid:]:
+            label = f"{folder} ({info['count']} files, {', '.join(info['extensions'][:3])})"
+            if st.checkbox(label, key=f"folder_{folder}"):
+                selected_folders.append(folder)
+    
+    # Fetch files from selected folders
+    if st.button("📥 Fetch Files from Selected Folders", type="primary", disabled=len(selected_folders)==0):
+        with st.spinner(f"Fetching files from {len(selected_folders)} folders..."):
+            try:
+                from github_rag.utils.folder_utils import get_files_from_folders
+                
+                repo = st.session_state.repo
+                all_files = get_files_from_folders(repo, selected_folders)
+                
+                # Apply file filter
+                filtered_files = [f for f in all_files  
+                    if any(f.name.endswith(ext) for ext in st.session_state.selected_extensions) and
+                    file_filter.is_within_size_limit(f) and
+                    not file_filter.is_excluded_path(f.path)]
+                excluded_files = [f for f in all_files if f not in filtered_files]
                 
                 st.session_state.filtered_files = filtered_files
                 st.session_state.excluded_files = excluded_files
+                st.session_state.selected_folders = selected_folders
                 
+                # Show results
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("✅ Files to Process", len(filtered_files))
@@ -143,7 +232,7 @@ if "repo" in st.session_state:
                         excluded_data = [
                             {
                                 "File Path": f.path,
-                                "Reason": "Binary/Unsupported type" if f.type != "file" 
+                                "Reason": "Binary/Unsupported" if f.type != "file" 
                                          else "Unsupported extension"
                             }
                             for f in excluded_files
@@ -152,8 +241,8 @@ if "repo" in st.session_state:
                 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
-
-    st.markdown("---")
+    
+    st.markdown("---")             
 
 # Chunking section
 if "filtered_files" in st.session_state:
@@ -225,7 +314,22 @@ if "chunks" in st.session_state:
             with st.spinner("Generating embeddings and storing..."):
                 try:
                     chunks = st.session_state.chunks
+
+                    # Validate chunks before embedding
+                    validator = ChunkValidator(max_chunk_tokens=500)
+                    valid_chunks, warnings = validator.validate_chunks(chunks)
                     
+                    if warnings:
+                        with st.expander("⚠️ Validation Warnings", expanded=True):
+                            for warning in warnings:
+                                st.warning(warning)
+                    
+                    if not valid_chunks:
+                        st.error("❌ No valid chunks to embed!")
+                        st.stop()
+                    
+                    st.info(f"✅ Validated {len(valid_chunks)} chunks (from {len(chunks)} total)")
+                                        
                     # Clear existing data
                     status_text = st.empty()
                     status_text.text("🧹 Clearing previous data...")
@@ -233,7 +337,7 @@ if "chunks" in st.session_state:
                     
                     # Generate embeddings
                     status_text.text("🔮 Generating embeddings...")
-                    chunk_texts = [chunk['content'] for chunk in chunks]
+                    chunk_texts = [chunk['content'] for chunk in valid_chunks]
                     
                     # Batch process (OpenAI allows up to 2048 inputs per request)
                     batch_size = 100

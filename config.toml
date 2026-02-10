@@ -3,8 +3,8 @@ embedding_model = "text-embedding-3-small"
 llm_model = "gpt-4o-mini"
 
 [chunking]
-chunk_size = 1000
-chunk_overlap = 200
+chunk_size = 300
+chunk_overlap = 50
 
 [filtering]
 include_extensions = [".py", ".md", ".txt", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs"]
